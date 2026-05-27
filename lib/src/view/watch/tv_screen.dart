@@ -223,7 +223,6 @@ class const _TvGameBody({
             position: position,
             lastMove: game.moveAt(gameState.stepCursor),
           ),
-          boardSettingsOverrides: const BoardSettingsOverrides(animationDuration: Duration.zero),
           topTable: gameState.orientation == Side.white ? blackPlayerWidget : whitePlayerWidget,
           bottomTable: gameState.orientation == Side.white ? whitePlayerWidget : blackPlayerWidget,
           moves: game.steps.skip(1).map((e) => e.sanMove!.san).toList(growable: false),
