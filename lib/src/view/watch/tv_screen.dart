@@ -175,9 +175,6 @@ class _TvScreenState extends ConsumerState<TvScreen> {
                           variant: gameState.game.meta.variant,
                           pockets: position.pockets,
                         ),
-                        boardSettingsOverrides: const BoardSettingsOverrides(
-                          animationDuration: Duration.zero,
-                        ),
                         topTable: gameState.orientation == Side.white
                             ? blackPlayerWidget
                             : whitePlayerWidget,
