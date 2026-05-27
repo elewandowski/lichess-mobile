@@ -165,6 +165,7 @@ class _TvScreenState extends ConsumerState<TvScreen> {
                       );
 
                       return GameLayout(
+                        key: ValueKey(game.id),
                         orientation: variantBoardOrientation(
                           variant: gameState.game.meta.variant,
                           youAre: gameState.orientation,
