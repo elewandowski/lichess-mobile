@@ -1,9 +1,13 @@
+import 'dart:convert';
+
 import 'package:chessground/chessground.dart';
 import 'package:dartchess/dartchess.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:lichess_mobile/src/model/common/id.dart';
 import 'package:lichess_mobile/src/model/game/exported_game.dart';
+import 'package:lichess_mobile/src/model/settings/board_preferences.dart';
+import 'package:lichess_mobile/src/model/settings/preferences_storage.dart';
 import 'package:lichess_mobile/src/model/tv/tv_channel.dart';
 import 'package:lichess_mobile/src/model/user/user.dart';
 import 'package:lichess_mobile/src/network/http.dart';
@@ -17,6 +21,20 @@ import '../../network/fake_http_client_factory.dart';
 import '../../network/fake_websocket_channel.dart';
 import '../../test_helpers.dart';
 import '../../test_provider_scope.dart';
+
+/// Returns the pieces currently sliding between squares on the board, keyed by destination square.
+Map<Square, ({Piece piece, Square from})> getTranslatingPieces(WidgetTester tester) {
+  for (final element
+      in find
+          .descendant(of: find.byType(Chessboard), matching: find.byType(CustomPaint))
+          .evaluate()) {
+    final painter = (element.widget as CustomPaint).painter;
+    if (painter is TranslatingPiecesPainter) {
+      return painter.translatingPieces;
+    }
+  }
+  throw StateError('TranslatingPiecesPainter not found');
+}
 
 void main() {
   const gameId = GameId('qVChCOTc');
@@ -169,6 +187,71 @@ void main() {
       // new game is loaded and opponent is called "White"
       expect(find.text('Black'), findsNothing);
       expect(find.text('White'), findsOneWidget);
+    });
+  });
+
+  group('TvScreen piece animations', () {
+    // Piece animation is disabled by default in tests, so turn it back on.
+    final animationPrefs = {
+      PrefCategory.board.storageKey: jsonEncode(
+        BoardPrefs.defaults.copyWith(pieceAnimation: true).toJson(),
+      ),
+    };
+
+    testWidgets('animates pieces when a move event is received', (tester) async {
+      final app = await makeTestProviderScopeApp(
+        tester,
+        home: const TvScreen(channel: TvChannel.best, initialGame: (gameId, Side.white)),
+        defaultPreferences: animationPrefs,
+      );
+      await tester.pumpWidget(app);
+      await loadGame(tester);
+
+      expect(getTranslatingPieces(tester), isEmpty);
+
+      sendServerSocketMessages(tvSocketUri, [
+        '{"t": "move", "v": 1, "d": {"ply": 1, "uci": "e2e4", "san": "e4", "clock": {"white": 180, "black": 180}}}',
+      ]);
+      await tester.pump();
+
+      // The pawn slides from e2 to e4 instead of jumping there.
+      expect(getTranslatingPieces(tester), {Square.e4: (piece: Piece.whitePawn, from: Square.e2)});
+
+      // The animation completes and the pawn rests on e4.
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(getTranslatingPieces(tester), isEmpty);
+      expect(boardHasPiece(tester, Square.e4, Piece.whitePawn), isTrue);
+    });
+
+    testWidgets('does not animate pieces when switching to the next game', (tester) async {
+      const nextGameId = GameId('nxtGame1');
+      final nextGameSocketUri = Uri(path: '/watch/$nextGameId/white/v6');
+
+      final app = await makeTestProviderScopeApp(
+        tester,
+        home: const TvScreen(channel: TvChannel.best, initialGame: (gameId, Side.white)),
+        defaultPreferences: animationPrefs,
+      );
+      await tester.pumpWidget(app);
+      await loadGame(tester);
+
+      // The channel moves on to another game.
+      sendServerSocketMessages(tvSocketUri, [
+        '{"t": "tvSelect", "d": {"channel": "best", "id": "$nextGameId", "color": "white", "player": {"name": "Magnus"}}}',
+      ]);
+      await tester.pump(kFakeWebSocketConnectionLag);
+      sendServerSocketMessages(nextGameSocketUri, [
+        makeFullEvent(nextGameId, 'e4 e5 Nf3', whiteUserName: 'Magnus', blackUserName: 'Hikaru'),
+      ]);
+      await tester.pump();
+      await tester.pump();
+
+      // The new game's position is shown immediately, without pieces sliding
+      // over from the previous game's position.
+      expect(find.text('Magnus'), findsOneWidget);
+      expect(boardHasPiece(tester, Square.e4, Piece.whitePawn), isTrue);
+      expect(boardHasPiece(tester, Square.f3, Piece.whiteKnight), isTrue);
+      expect(getTranslatingPieces(tester), isEmpty);
     });
   });
 }
